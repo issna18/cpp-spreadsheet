@@ -1,11 +1,12 @@
 #pragma once
 
-#include "FormulaLexer.h"
 #include "common.h"
 
 #include <forward_list>
 #include <functional>
 #include <stdexcept>
+
+using FunctorCellFromPosition = std::function<const CellInterface*(Position)>;
 
 namespace ASTImpl {
 class Expr;
@@ -23,7 +24,7 @@ public:
     FormulaAST& operator=(FormulaAST&&) = default;
     ~FormulaAST();
 
-    double Execute(/*добавьте нужные аргументы*/ args) const;
+    double Execute(FunctorCellFromPosition get_cell) const;
     void PrintCells(std::ostream& out) const;
     void Print(std::ostream& out) const;
     void PrintFormula(std::ostream& out) const;

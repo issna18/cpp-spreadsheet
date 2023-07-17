@@ -72,7 +72,7 @@ public:
     virtual ~Expr() = default;
     virtual void Print(std::ostream& out) const = 0;
     virtual void DoPrintFormula(std::ostream& out, ExprPrecedence precedence) const = 0;
-    virtual double Evaluate(/*добавьте сюда нужные аргументы*/ args) const = 0;
+    virtual double Evaluate(FunctorCellFromPosition get_cell) const = 0;
 
     // higher is tighter
     virtual ExprPrecedence GetPrecedence() const = 0;
@@ -142,8 +142,33 @@ public:
         }
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/) const override {
-			// Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(FunctorCellFromPosition get_cell) const override {
+
+        auto Evaluator = [](double l,
+                            double r,
+                std::function<double(double,double)> op){
+            double answer {op(l, r)};
+            if (!std::isfinite(answer)) {
+                throw FormulaError(FormulaError::Category::Div0);
+            }
+            return answer;
+        };
+
+        double lhs = lhs_->Evaluate(get_cell);
+        double rhs = rhs_->Evaluate(get_cell);
+
+        switch (type_) {
+        case Add:
+            return Evaluator(lhs, rhs, std::plus<double>());
+        case Subtract:
+            return Evaluator(lhs, rhs, std::minus<double>());
+        case Multiply:
+            return Evaluator(lhs, rhs, std::multiplies<double>());
+        case Divide:
+            return Evaluator(lhs, rhs, std::divides<double>());
+        default:
+            throw FormulaError(FormulaError::Category::Value);
+        }
     }
 
 private:
@@ -180,8 +205,17 @@ public:
         return EP_UNARY;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(FunctorCellFromPosition get_cell) const override {
+        double operand = operand_->Evaluate(get_cell);
+
+        switch (type_) {
+        case UnaryPlus:
+            return operand;
+        case UnaryMinus:
+            return (-1.0) * operand;
+        default:
+            throw FormulaError(FormulaError::Category::Value);
+        }
     }
 
 private:
@@ -211,8 +245,34 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // реализуйте метод.
+    double Evaluate(FunctorCellFromPosition get_cell) const override {
+        if (!cell_->IsValid()) {
+            throw FormulaError(FormulaError::Category::Ref);
+        }
+
+        const auto cell {get_cell(*cell_)};
+        if (cell == nullptr) {
+            return 0.0;
+        }
+
+        const auto value {cell->GetValue()};
+        if (std::holds_alternative<FormulaError>(value))
+            throw FormulaError(FormulaError::Category::Value);
+
+        if (std::holds_alternative<double>(value)) return std::get<double>(value);
+
+        const std::string& str_value {std::get<std::string>(value)};
+        if (str_value.empty()) return 0;
+
+        //v.remove_prefix(std::min(v.find_first_not_of(" "), v.size()))
+        size_t pos {};
+        try {
+            const double number {std::stod(str_value, &pos)};
+            if (pos != str_value.size()) throw FormulaError(FormulaError::Category::Value);
+            return number;
+        } catch (...) {
+            throw FormulaError(FormulaError::Category::Value);
+        }
     }
 
 private:
@@ -237,7 +297,7 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
+    double Evaluate(std::function<const CellInterface*(Position)> CellFromPosition) const override {
         return value_;
     }
 
@@ -374,7 +434,11 @@ FormulaAST ParseFormulaAST(std::istream& in) {
 
 FormulaAST ParseFormulaAST(const std::string& in_str) {
     std::istringstream in(in_str);
-    return ParseFormulaAST(in);
+    try {
+        return ParseFormulaAST(in);
+    } catch(...) {
+        throw FormulaException("aaa");
+    }
 }
 
 void FormulaAST::PrintCells(std::ostream& out) const {
@@ -391,8 +455,8 @@ void FormulaAST::PrintFormula(std::ostream& out) const {
     root_expr_->PrintFormula(out, ASTImpl::EP_ATOM);
 }
 
-double FormulaAST::Execute(/*добавьте нужные аргументы*/ args) const {
-    return root_expr_->Evaluate(/*добавьте нужные аргументы*/ args);
+double FormulaAST::Execute(FunctorCellFromPosition get_cell) const {
+    return root_expr_->Evaluate(get_cell);
 }
 
 FormulaAST::FormulaAST(std::unique_ptr<ASTImpl::Expr> root_expr, std::forward_list<Position> cells)
