@@ -32,7 +32,8 @@ private:
     class TextImpl;
     class FormulaImpl;
 
-    void UpdateDependencies(const std::vector<Position>& old);
+    void UpdateDependencies(const std::vector<Position>& old_deps,
+                            const std::vector<Position>& new_deps);
     void InvalidateCache();
     void ThrowIfHasCycle(const CellInterface *cell) const;
     void SetFormula(std::string text);

@@ -14,26 +14,52 @@ Cell::Cell(SheetInterface &sheet)
 Cell::~Cell() = default;
 
 void Cell::Set(std::string text) {
+    auto tmp_cell {Cell(sheet_)};
+
     if (text.empty()) {
-        impl_ = std::make_unique<EmptyImpl>();
+        tmp_cell.impl_ = std::make_unique<EmptyImpl>();
+        std::swap(impl_, tmp_cell.impl_);
     } else if (text.front() == FORMULA_SIGN && text.size() > 1) {
-        auto tmp_cell = Cell(sheet_);
-        tmp_cell.SetFormula(text.substr(1));
+        tmp_cell.impl_ = std::make_unique<FormulaImpl>(text.substr(1), sheet_);
+
+        // Циклическую зависимость нужно проверять
+        // только если мы меняем значение ячейки на формулу.
+        // Предположим, что формула поменялась на текст или пустышку.
+        // Клетку будем считать узлом графа. Тогда это будет означать,
+        // что узел перестал иметь ребра от себя к другим,
+        // (но рёбра от других могут остатья), т.е. узел стал листиком в графе.
+        // А так как мы всегда имеем валидный граф без циклов,
+        // то уничтожение рёбер не привдёт к появлению цикла.
+
+        // Спасибо за подсказку,
+        // что рёбра от других на текущую клетку могут остаться :)
 
         ThrowIfHasCycle(&tmp_cell);
 
         std::swap(impl_, tmp_cell.impl_);
 
+        // Добавим пустые клетки, если формула на них ссылается.
+        // Если потом кто-то изменит значение пустой клетки,
+        // значение формулы в кэше должно инвалидироатьcя
         for (auto& ref_pos : impl_->GetReferencedCells()) {
             if (sheet_.GetCell(ref_pos) == nullptr) {
                 sheet_.SetCell(ref_pos, {});
             }
         }
-
-        UpdateDependencies(tmp_cell.GetReferencedCells());
     } else {
-        impl_ = std::make_unique<TextImpl>(text);
+        tmp_cell.impl_ = std::make_unique<TextImpl>(text);
+        std::swap(impl_, tmp_cell.impl_);
     }
+
+    // Теперь в tmp_cell лежит предыдущие значение клетки, получим из неё
+    // список клеток на которые она ссылалась и удалим себя из них,
+    // затем обновим обратные зависимости, добавив в них себя.
+    // !!! Это нужно делать для всех, т.к. предыдущее значение
+    //     может быть формулой и иметь ссылки.
+
+    // Поменяла сигнатуру функции, кажется, так более явно
+    UpdateDependencies(tmp_cell.GetReferencedCells(),
+                       this->GetReferencedCells());
     InvalidateCache();
 }
 
@@ -44,7 +70,8 @@ void Cell::SetFormula(std::string text) {
 void Cell::Clear() {
     auto old = std::move(impl_);
     impl_ = std::make_unique<EmptyImpl>();
-    UpdateDependencies(old->GetReferencedCells());
+    UpdateDependencies(old->GetReferencedCells(),
+                       this->GetReferencedCells());
     InvalidateCache();
 }
 
@@ -81,13 +108,14 @@ void Cell::ThrowIfHasCycle(const CellInterface* cell) const {
     DFSPaint(cell);
 }
 
-void Cell::UpdateDependencies(const std::vector<Position> &old) {
-    for (auto pos : old) {
+void Cell::UpdateDependencies(const std::vector<Position>& old_deps,
+                              const std::vector<Position>& new_deps) {
+    for (auto pos : old_deps) {
         auto cell = sheet_.GetCell(pos);
         dynamic_cast<Cell*>(cell)->back_dependencies_.erase(this);
     }
 
-    for (auto pos : GetReferencedCells()) {
+    for (auto pos : new_deps) {
         auto cell = sheet_.GetCell(pos);
         dynamic_cast<Cell*>(cell)->back_dependencies_.insert(this);
     }

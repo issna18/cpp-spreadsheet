@@ -256,19 +256,23 @@ public:
         }
 
         const auto value {cell->GetValue()};
-        if (std::holds_alternative<FormulaError>(value))
+        if (std::holds_alternative<FormulaError>(value)) {
             throw FormulaError(FormulaError::Category::Value);
+        }
 
-        if (std::holds_alternative<double>(value)) return std::get<double>(value);
+        if (std::holds_alternative<double>(value)) {
+            return std::get<double>(value);
+        }
 
         const std::string& str_value {std::get<std::string>(value)};
         if (str_value.empty()) return 0;
 
-        //v.remove_prefix(std::min(v.find_first_not_of(" "), v.size()))
         size_t pos {};
         try {
             const double number {std::stod(str_value, &pos)};
-            if (pos != str_value.size()) throw FormulaError(FormulaError::Category::Value);
+            if (pos != str_value.size()) {
+                throw FormulaError(FormulaError::Category::Value);
+            }
             return number;
         } catch (...) {
             throw FormulaError(FormulaError::Category::Value);
@@ -437,7 +441,7 @@ FormulaAST ParseFormulaAST(const std::string& in_str) {
     try {
         return ParseFormulaAST(in);
     } catch(...) {
-        throw FormulaException("aaa");
+        throw FormulaException("formula error");
     }
 }
 
